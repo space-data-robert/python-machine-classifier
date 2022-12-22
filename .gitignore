@@ -38,5 +38,5 @@ target/
 *.swp
 *.swo
 .mypy_cache/
-# data/
+data/
 
