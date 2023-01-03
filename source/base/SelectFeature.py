@@ -2,7 +2,7 @@ from sklearn.base import TransformerMixin, BaseEstimator
 
 
 class SelectFeature(BaseEstimator, TransformerMixin):
-    def __init__(self, feature_names, target_name=list()):
+    def __init__(self, feature_names, target_name=None):
         self.feature_names = feature_names
         self.target_name = target_name
 
@@ -10,4 +10,6 @@ class SelectFeature(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        return X[self.feature_names + self.target_name]
+        if self.target_name is None:
+            return X[self.feature_names]
+        return X[self.feature_names + [self.target_name]]
