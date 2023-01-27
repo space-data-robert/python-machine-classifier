@@ -1,15 +1,15 @@
 """ Before installed category_encoders & catboost. """
 
 import warnings
-# import random
+import random
 import numpy as np
 import pandas as pd
-# from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
 from category_encoders.ordinal import OrdinalEncoder
-# from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.cluster import KMeans
-# from catboost import CatBoostClassifier, Pool
+from catboost import CatBoostClassifier, Pool
 warnings.filterwarnings('ignore')
 pd.set_option('display.max_columns', 10)
 
@@ -105,13 +105,10 @@ def pipeline():
     # 범주형 변수를 인코딩합니다.
     ordinal_encoder = OrdinalEncoder(categorical_column_nm)
     # 타겟에 따라 딕셔너리 형태의 인코딩입니다.
-    x_data[categorical_column_nm] = ordinal_encoder.fit(
+    # TODO: 피팅후 변환을 시도하면 인코딩이 안되는 이슈를 찾을 필요가 있습니다.
+    x_data[categorical_column_nm] = ordinal_encoder.fit_transform(
         x_data[categorical_column_nm],
         y_data)
-    # 피팅 모델로 인코딩을 진행합니다.
-    x_data[categorical_column_nm] = ordinal_encoder.transform(
-        x_data[categorical_column_nm]
-    )
     # 아이디는 정수 형태로 변환합니다.
     x_data.user_id = x_data.user_id.astype('int64')
 
@@ -131,7 +128,48 @@ def pipeline():
     x_data[numerical_column_nm] = standard_scaler.fit_transform(
         x_data[numerical_column_nm]
     )
-    # TODO: catboost modeling & pipelining
+    # TODO: 코랩(RAM 12GB)에서 모델링 시에 메모리가 뻣는 현상 해결이 필요합니다.
+    n_class: int = 3
+    n_fold: int = 15
+    random_state: int = 42
+
+    skfold = StratifiedKFold(
+        n_splits=n_fold,
+        shuffle=True,
+        random_state=random_state)
+
+    fold: list = []
+
+    for train_ind, valid_ind in skfold.split(x_data, y_data):
+        fold.append((train_ind, valid_ind))
+
+    pred: np.array = np.zeros((x_data.shape[0], n_class))
+
+    categorical_excepted_column_nm: list = ['gender', 'car', 'reality']
+
+    catboost_categorical_column_nm: list = [
+        column_nm for column_nm in categorical_column_nm
+        if column_nm not in categorical_excepted_column_nm]
+
+    for fold_num in range(n_fold):
+        train_ind, valid_ind = fold[fold_num]
+
+        x_train, y_train = x_data.iloc[train_ind], y_data.iloc[train_ind]
+        x_valid, y_valid = x_data.iloc[valid_ind], y_data.iloc[valid_ind]
+
+        train = Pool(data=x_train, label=y_train, cat_features=catboost_categorical_column_nm)
+        valid = Pool(data=x_valid, label=y_valid, cat_features=catboost_categorical_column_nm)
+
+        catboost = CatBoostClassifier() # task_type='GPU'
+
+        catboost.fit(
+            train, eval_set=valid,
+            use_best_model=True,
+            early_stopping_rounds=100,
+            verbose=100)
+
+        pred[valid_ind] = catboost.predict_proba(x_valid)
+        print(f'log loss score: {log_loss(y_valid, pred[valid_ind]):.6f}')
     return 0
 
 
